@@ -99,60 +99,63 @@ app.post('/orders', async (req, res) => {
       });
     }
     
-    // Validate and calculate order total
+    // Validate and calculate order total concurrently
     let totalAmount = 0;
     const orderItems = [];
+    const stockUpdates = [];
     
-    for (const item of items) {
-      try {
-        // Get product details from product service
-        const productResponse = await axios.get(
-          `${PRODUCT_SERVICE_URL}/products/${item.productId}`
-        );
-        
-        if (!productResponse.data.success) {
-          return res.status(400).json({ 
-            success: false, 
-            error: `Product ${item.productId} not found` 
-          });
-        }
-        
-        const product = productResponse.data.data;
-        
-        // Check stock availability
-        if (product.stock < item.quantity) {
-          return res.status(400).json({ 
-            success: false, 
-            error: `Insufficient stock for product ${product.name}` 
-          });
-        }
-        
-        const itemTotal = product.price * item.quantity;
-        totalAmount += itemTotal;
-        
-        orderItems.push({
-          productId: product.id,
-          productName: product.name,
-          price: product.price,
-          quantity: item.quantity,
-          subtotal: itemTotal
-        });
-        
-        // Update product stock
-        await axios.patch(
-          `${PRODUCT_SERVICE_URL}/products/${product.id}/stock`,
-          { quantity: -item.quantity }
-        );
-        
-      } catch (error) {
-        console.error('Error processing product:', error);
-        return res.status(400).json({ 
-          success: false, 
-          error: `Failed to process product ${item.productId}` 
-        });
-      }
+    try {
+      // Process all items concurrently for better performance
+      const itemPromises = items.map(item => 
+        axios.get(`${PRODUCT_SERVICE_URL}/products/${item.productId}`)
+          .then(productResponse => {
+            if (!productResponse.data.success) {
+              throw new Error(`Product ${item.productId} not found`);
+            }
+            
+            const product = productResponse.data.data;
+            
+            // Check stock availability
+            if (product.stock < item.quantity) {
+              throw new Error(`Insufficient stock for product ${product.name}`);
+            }
+            
+            const itemTotal = product.price * item.quantity;
+            
+            return {
+              orderItem: {
+                productId: product.id,
+                productName: product.name,
+                price: product.price,
+                quantity: item.quantity,
+                subtotal: itemTotal
+              },
+              stockUpdate: {
+                productId: product.id,
+                quantity: -item.quantity
+              },
+              itemTotal
+            };
+          })
+      );
+      
+      const results = await Promise.all(itemPromises);
+      
+      // Collect results
+      results.forEach(result => {
+        orderItems.push(result.orderItem);
+        stockUpdates.push(result.stockUpdate);
+        totalAmount += result.itemTotal;
+      });
+      
+    } catch (error) {
+      return res.status(400).json({ 
+        success: false, 
+        error: error.message 
+      });
     }
     
+    // Create order first
     const order = {
       id: uuidv4(),
       userId,
@@ -162,9 +165,28 @@ app.post('/orders', async (req, res) => {
       createdAt: new Date().toISOString()
     };
     
+    // Store order
     await redisClient.set(`order:${order.id}`, JSON.stringify(order));
     await redisClient.sAdd(`user:${userId}:orders`, order.id);
     await redisClient.sAdd('orders:all', order.id);
+    
+    // Update stock concurrently after order is created
+    try {
+      const stockUpdatePromises = stockUpdates.map(update =>
+        axios.patch(
+          `${PRODUCT_SERVICE_URL}/products/${update.productId}/stock`,
+          { quantity: update.quantity }
+        )
+      );
+      
+      await Promise.all(stockUpdatePromises);
+    } catch (error) {
+      // If stock update fails, mark order for manual review
+      console.error('Stock update failed, order needs review:', error);
+      order.status = 'pending_review';
+      order.error = 'Stock update failed - requires manual review';
+      await redisClient.set(`order:${order.id}`, JSON.stringify(order));
+    }
     
     res.status(201).json({ success: true, data: order });
   } catch (error) {

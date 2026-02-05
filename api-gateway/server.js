@@ -106,11 +106,8 @@ app.get('/api/products/:id', cacheMiddleware(300), async (req, res) => {
 app.post('/api/products', async (req, res) => {
   try {
     const response = await axios.post(`${SERVICES.products}/products`, req.body);
-    // Invalidate cache
-    const keys = await redisClient.keys('cache:/api/products*');
-    if (keys.length > 0) {
-      await redisClient.del(keys);
-    }
+    // Invalidate specific cache keys
+    await redisClient.del('cache:/api/products');
     res.json(response.data);
   } catch (error) {
     res.status(error.response?.status || 500).json({ 
@@ -166,14 +163,8 @@ app.post('/api/users/login', async (req, res) => {
   try {
     const response = await axios.post(`${SERVICES.users}/users/login`, req.body);
     
-    // Cache user session
-    if (response.data.token) {
-      await redisClient.setEx(
-        `session:${response.data.token}`,
-        3600,
-        JSON.stringify(response.data.user)
-      );
-    }
+    // Session management is handled by User Service
+    // No need to duplicate session caching here
     
     res.json(response.data);
   } catch (error) {
