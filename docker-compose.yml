@@ -5,7 +5,7 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5662"   # Mesaj iletim portu
+      - "5672:5672"   # Mesaj iletim portu
       - "15672:15672" # Yönetim arayüzü (UI)
     networks:
       - ecommerce-net
@@ -14,10 +14,31 @@ services:
   auth-db:
     image: mongo
     ports:
-      - "27017:27017"
+      - "27018:27017"  # Dışarıdan 27018, içeride 27017
+    volumes:
+      - auth-data:/data/db
+    networks:
+      - ecommerce-net
+
+  # Auth Servisi
+  auth-service:
+    build: ./authservice
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - MONGO_URI=mongodb://auth-db:27017/authdb
+      - RABBITMQ_URL=amqp://rabbitmq:5672
+      - JWT_SECRET=gizli-anahtar-degistir
+    depends_on:
+      - auth-db
+      - rabbitmq
     networks:
       - ecommerce-net
 
 networks:
   ecommerce-net:
     driver: bridge
+
+volumes:
+  auth-data:
