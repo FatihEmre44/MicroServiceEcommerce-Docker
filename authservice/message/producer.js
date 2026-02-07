@@ -9,11 +9,11 @@ async function connectRabbit(retries = 5, delay = 3000) {
             const connection = await amqp.connect(process.env.RABBITMQ_URL || 'amqp://localhost');
             channel = await connection.createChannel();
             console.log(' RabbitMQ bağlantısı başarılı');
-            return; // Başarılı, çık
+            return; // Başarılı
         } catch (err) {
             console.log(`RabbitMQ bağlantı denemesi ${i + 1}/${retries} başarısız. ${delay/1000}s sonra tekrar...`);
             if (i < retries - 1) {
-                await new Promise(resolve => setTimeout(resolve, delay));
+                await new Promise(resolve => setTimeout(resolve, delay));// 3 saniye bekle ve tekrar dene
             }
         }
     }
