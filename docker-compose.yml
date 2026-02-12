@@ -114,6 +114,20 @@ services:
     networks:
       - ecommerce-net
 
+  # API Gateway
+  api-gateway:
+    build: ./gateway
+    container_name: api-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+      - search-service
+    networks:
+      - ecommerce-net
+
 networks:
   ecommerce-net:
     driver: bridge

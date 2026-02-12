@@ -1,0 +1,12 @@
+api-gateway:
+    build: ./gateway
+    container_name: efi-gateway
+    ports:
+      - "8000:8000"
+    depends_on:
+      - auth-service
+      - product-service
+      - order-service
+      - search-service
+    networks:
+      - efi-network
